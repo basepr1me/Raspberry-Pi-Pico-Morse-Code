@@ -1,6 +1,6 @@
 # Raspberry Pi Pico Morse Code
 
-Raspberry Pi Morse Code Library
+Raspberry Pi Pico Morse Code Library
 
 This Morse Code library allows the programmer to generate Morse Code via a GPIO
 pin.
