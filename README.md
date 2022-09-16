@@ -23,7 +23,7 @@ Types available are:
 
 Pro-sign Morse Code can be generated using backticks:
 
-		char led_morse[] = "Hello giant world `ar`";
+		cont char *led_morse = "Hello giant world `ar`";
 
 Example
 -------
