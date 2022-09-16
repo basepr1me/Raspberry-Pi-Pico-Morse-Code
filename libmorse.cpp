@@ -54,13 +54,13 @@ static unsigned long	 gpio_handle_unit_millis;
 
 static char		*gpio_tx_str = NULL;
 
-void			 gpio_stop(void);
-void			 gpio_handle_chars(void);
-void			 gpio_handle_units(uint8_t c);
+static void		 gpio_stop(void);
+static void		 gpio_handle_chars(void);
+static void		 gpio_handle_units(uint8_t c);
 
-int64_t gpio_unit_handled_cb(alarm_id_t, void *);
-int64_t gpio_pause_handled_cb(alarm_id_t, void *);
-int64_t gpio_tx_handled_cb(alarm_id_t, void *);
+static int64_t gpio_unit_handled_cb(alarm_id_t, void *);
+static int64_t gpio_pause_handled_cb(alarm_id_t, void *);
+static int64_t gpio_tx_handled_cb(alarm_id_t, void *);
 
 Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause)
 {
@@ -127,7 +127,7 @@ Morse::gpio_tx(const char *morse)
 	}
 }
 
-void
+static void
 gpio_stop(void)
 {
 	gpio_digraph = 0;
@@ -137,7 +137,7 @@ gpio_stop(void)
 
 }
 
-int64_t
+static int64_t
 gpio_tx_handled_cb(alarm_id_t id, void *data)
 {
 	gpio_this_index = 0;
@@ -153,7 +153,7 @@ struct pause_cb {
 };
 struct pause_cb pcb;
 
-int64_t
+static int64_t
 gpio_unit_handled_cb(alarm_id_t id, void *data)
 {
 	struct pause_cb *pcb = (struct pause_cb *) data;
@@ -174,7 +174,7 @@ gpio_unit_handled_cb(alarm_id_t id, void *data)
 	return 0;
 }
 
-int64_t
+static int64_t
 gpio_pause_handled_cb(alarm_id_t id, void *data)
 {
 	struct pause_cb *pcb = (struct pause_cb *) data;
@@ -198,7 +198,7 @@ gpio_pause_handled_cb(alarm_id_t id, void *data)
 	return 0;
 }
 
-void
+static void
 gpio_handle_chars(void)
 {
 	if (gpio_this_index == gpio_tx_len)
@@ -227,7 +227,7 @@ gpio_handle_chars(void)
 
 }
 
-void
+static void
 gpio_handle_units(uint8_t c)
 {
 	memset(&pcb, 0, sizeof(pcb));
