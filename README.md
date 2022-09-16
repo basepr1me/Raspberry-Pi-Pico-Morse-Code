@@ -1,7 +1,5 @@
 # Raspberry Pi Pico Morse Code
 
-XXX: a recently added feature broke this. Check back
-
 Raspberry Pi Pico Morse Code Library
 
 This Morse Code library allows the programmer to generate Morse Code via a GPIO

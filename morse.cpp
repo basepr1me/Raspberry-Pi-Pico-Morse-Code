@@ -15,11 +15,14 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "pico/stdlib.h"
 #include "libmorse.h"
 
-#define WPM 10
+#define CALLS 3
+
+#define WPM 15
 #define TX_PAUSE 3 // pause before transmitting and between TXs
 
 const uint pin = PICO_DEFAULT_LED_PIN;
@@ -31,12 +34,25 @@ int main(void);
 int
 main()
 {
-	char led_morse[] = "Hello giant world `ar`";
+	uint8_t n = 0;
+
+	const char *led_morse[][CALLS] = {
+	    {
+		    "de k7tle `ar`",
+		    "Bk",
+		    "Hello",
+	    }
+	};
 
 	stdio_init_all();
 
 	while (1) {
-		morse_led.gpio_tx(led_morse);
+		if (!morse_led.gpio_get_transmitting()) {
+			n = 0 + (rand() % CALLS);
+			printf("Sending transmission %d: %s\n", n,
+			    led_morse[0][n]);
+			morse_led.gpio_tx(led_morse[0][n]);
+		}
 	}
 
 	return 0;

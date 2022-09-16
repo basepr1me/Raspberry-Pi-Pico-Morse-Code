@@ -29,7 +29,7 @@ Morse
 		uint8_t gpio_get_transmitting(void);
 		void gpio_set_transmitting(void);
 
-		void gpio_tx(const char[]);
+		void gpio_tx(const char *);
 		void gpio_tx_stop(void);
 		void gpio_watchdog(void);
 };

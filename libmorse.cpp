@@ -20,6 +20,8 @@
 #include <stdlib.h>
 
 #include "pico/stdlib.h"
+#include "pico/malloc.h"
+
 #include "libmorse.h"
 
 #define DIT		 1.0
@@ -108,7 +110,7 @@ Morse::gpio_tx_stop(void)
 }
 
 void
-Morse::gpio_tx(const char tx[])
+Morse::gpio_tx(const char *morse)
 {
 	int i;
 
@@ -118,15 +120,8 @@ Morse::gpio_tx(const char tx[])
 		gpio_put(gpio_tx_pin, 0);
 		gpio_tx_sending = 1;
 
-		gpio_tx_len = strlen(tx);
-
-		char tx2[gpio_tx_len];
-		for (i = 0; i < gpio_tx_len; i++)
-			tx2[i] = toupper(tx[i]);
-
-		free(gpio_tx_str);
-		gpio_tx_str = NULL;
-		gpio_tx_str = strndup(tx2, gpio_tx_len);
+		gpio_tx_len = strlen(morse);
+		gpio_tx_str = strndup(morse, gpio_tx_len);
 
 		add_alarm_in_ms(gpio_pause, gpio_tx_handled_cb, NULL, false);
 	}
@@ -139,35 +134,7 @@ gpio_stop(void)
 	gpio_tx_sending = 0;
 	gpio_this_index = 0;
 	gpio_next_index = 0;
-}
 
-void
-gpio_handle_chars(void)
-{
-	/* gpio_tx_current_millis = millis(); */
-	if (gpio_next_index) {
-		if (gpio_this_index == gpio_tx_len) {
-			gpio_stop();
-			return;
-		}
-		gpio_next_index = 0;
-		gpio_handle_unit = 0;
-		gpio_unit_handled = 0;
-		if (gpio_tx_str[gpio_this_index] == 126) {
-			gpio_this_index++;
-			gpio_next_index = 1;
-		} else if (gpio_tx_str[gpio_this_index] == 96) {
-			gpio_digraph = !gpio_digraph;
-			gpio_this_index++;
-			gpio_next_index = 1;
-			gpio_handle_chars();
-		} else {
-			gpio_tx_enc = ctob(gpio_tx_str[gpio_this_index]);
-			gpio_handle_units(gpio_tx_enc);
-			gpio_bit = 0;
-		}
-	} else if (gpio_tx_sending)
-		gpio_handle_units(gpio_tx_enc);
 }
 
 int64_t
@@ -181,21 +148,31 @@ gpio_tx_handled_cb(alarm_id_t id, void *data)
 	return 0;
 }
 
-int64_t
-gpio_unit_handled_cb(alarm_id_t id, void *data)
-{
-	gpio_put(gpio_tx_pin, 0);
-	gpio_bit++;
-	gpio_unit_handled = 1;
-
-	gpio_handle_chars();
-
-	return 0;
-}
-
 struct pause_cb {
 	uint8_t c;
 };
+struct pause_cb pcb;
+
+int64_t
+gpio_unit_handled_cb(alarm_id_t id, void *data)
+{
+	struct pause_cb *pcb = (struct pause_cb *) data;
+
+	gpio_put(gpio_tx_pin, 0);
+	gpio_unit_handled = 1;
+	gpio_bit++;
+
+	// handle IC_SP, or handle C_SP
+	if (pcb->c >> (gpio_bit + 1) || gpio_digraph)
+		gpio_handle_unit_millis = IC_SP * gpio_unit_t;
+	else
+		gpio_handle_unit_millis = C_SP * gpio_unit_t;
+
+	add_alarm_in_ms(gpio_handle_unit_millis, gpio_pause_handled_cb, pcb,
+	    false);
+
+	return 0;
+}
 
 int64_t
 gpio_pause_handled_cb(alarm_id_t id, void *data)
@@ -209,61 +186,79 @@ gpio_pause_handled_cb(alarm_id_t id, void *data)
 	if (!(pcb->c >> (gpio_bit + 1))) {
 		gpio_bit = 0;
 		gpio_next_index = 1;
+		gpio_tx_str++;
 		gpio_this_index++;
-	}
+		gpio_handle_chars();
+	} else
+		gpio_handle_units(pcb->c);
 
-	// hit the end of the tx
 	if (gpio_this_index == gpio_tx_len)
 		gpio_stop();
-
-	gpio_handle_chars();
 
 	return 0;
 }
 
 void
+gpio_handle_chars(void)
+{
+	if (gpio_this_index == gpio_tx_len)
+		gpio_stop();
+	if (gpio_next_index) {
+		gpio_next_index = 0;
+		gpio_handle_unit = 0;
+		gpio_unit_handled = 0;
+		if (*gpio_tx_str == 126) {
+			gpio_tx_str++;
+			gpio_this_index++;
+			gpio_next_index = 1;
+		} else if (*gpio_tx_str == 96) {
+			gpio_digraph = !gpio_digraph;
+			gpio_tx_str++;
+			gpio_this_index++;
+			gpio_next_index = 1;
+			gpio_handle_chars();
+		} else {
+			gpio_tx_enc = ctob(*gpio_tx_str);
+			gpio_handle_units(gpio_tx_enc);
+			gpio_bit = 0;
+		}
+	} else if (gpio_tx_sending)
+		gpio_handle_units(gpio_tx_enc);
+
+}
+
+void
 gpio_handle_units(uint8_t c)
 {
-	struct pause_cb pcb;
-
 	memset(&pcb, 0, sizeof(pcb));
 	pcb.c = c;
 
 	// set led on and space off
 	if (!gpio_next_index && !gpio_handle_unit && !gpio_unit_handled &&
 	    gpio_tx_sending) {
-		if (c == 1) {
+		if (c == 1)
 			gpio_handle_unit_millis = W_SP * gpio_unit_t;
-		} else {
+		else {
+			gpio_put(gpio_tx_pin, 1);
 			if (bit_read(c, gpio_bit))
 				gpio_handle_unit_millis = DAH * gpio_unit_t;
 			else
 				gpio_handle_unit_millis = DIT * gpio_unit_t;
-			gpio_put(gpio_tx_pin, 1);
 		}
 		gpio_handle_unit = 1;
 
 		add_alarm_in_ms(gpio_handle_unit_millis, gpio_unit_handled_cb,
-		    NULL, false);
-	}
-
-	// handle IC_SP, or handle C_SP
-	if (gpio_handle_unit && gpio_unit_handled && !gpio_next_index &&
-	    gpio_tx_sending) {
-		if (c >> (gpio_bit + 1) || gpio_digraph)
-			gpio_handle_unit_millis = IC_SP * gpio_unit_t;
-		else
-			gpio_handle_unit_millis = C_SP * gpio_unit_t;
-
-		add_alarm_in_ms(gpio_handle_unit_millis, gpio_pause_handled_cb,
 		    &pcb, false);
 	}
+
 }
 
 static uint8_t
 ctob(uint8_t c)
 {
-	switch(c) {
+	uint8_t uc = toupper(c);
+
+	switch(uc) {
 	case 32:	return 0b1;			// ' '
 	case 33:	return 0b1110101;		// '!'
 	case 34:	return 0b1010010;		// '"'

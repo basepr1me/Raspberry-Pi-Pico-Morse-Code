@@ -15,6 +15,7 @@ add_executable(morse
 # pull in common dependencies
 target_link_libraries(morse
 	pico_stdlib
+	pico_malloc
 	)
 
 pico_enable_stdio_usb(morse 1)
