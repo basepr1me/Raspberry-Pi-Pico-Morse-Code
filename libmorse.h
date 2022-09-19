@@ -31,7 +31,6 @@ Morse
 
 		void gpio_tx(const char *);
 		void gpio_tx_stop(void);
-		void gpio_watchdog(void);
 };
 
 enum

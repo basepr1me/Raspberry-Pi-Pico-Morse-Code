@@ -38,9 +38,9 @@ main()
 
 	const char *led_morse[][CALLS] = {
 	    {
-		    "de k7tle `ar`",
-		    "Bk",
-		    "Hello",
+		    "de az3az `ar`",
+		    "cq cq sota cq de az3az k",
+		    "qst qst qst hello de az3az 73",
 	    }
 	};
 

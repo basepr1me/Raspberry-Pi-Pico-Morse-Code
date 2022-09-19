@@ -35,8 +35,13 @@
 #define UNIT_T(x) (60.0 / (50.0 * (float)x)) * 1000.0
 #define bit_read(value, bit) (((value) >> (bit)) & 0x01)
 
-static volatile uint8_t	 gpio_wpm;
-static volatile uint8_t	 gpio_tx_pin;
+struct morse_cb_args {
+	uint8_t c;
+	char *morse;
+	uint8_t len;
+};
+
+static volatile uint8_t	 gpio_wpm, gpio_tx_pin, gpio_stop_now;
 static volatile uint64_t gpio_pause;
 
 static volatile float	 gpio_unit_t;
@@ -44,7 +49,6 @@ static volatile float	 gpio_unit_t;
 static volatile uint8_t	 gpio_tx_sending = 0;
 static volatile	uint8_t	 gpio_unit_handled;
 
-static uint8_t		 gpio_tx_len, gpio_tx_enc;
 static uint8_t		 ctob(uint8_t);
 static uint8_t		 gpio_this_index = 0, gpio_next_index = 0;
 static uint8_t		 gpio_handle_unit, gpio_bit;
@@ -52,11 +56,9 @@ static uint8_t		 gpio_digraph = 0, gpio_inited = 0;
 
 static unsigned long	 gpio_handle_unit_millis;
 
-static char		*gpio_tx_str = NULL;
-
-static void		 gpio_stop(void);
-static void		 gpio_handle_chars(void);
-static void		 gpio_handle_units(uint8_t c);
+static void		 gpio_stop(struct morse_cb_args *);
+static void		 gpio_handle_chars(struct morse_cb_args *);
+static void		 gpio_handle_units(struct morse_cb_args *);
 
 static int64_t gpio_unit_handled_cb(alarm_id_t, void *);
 static int64_t gpio_pause_handled_cb(alarm_id_t, void *);
@@ -106,70 +108,82 @@ Morse::gpio_get_transmitting(void)
 void
 Morse::gpio_tx_stop(void)
 {
-	gpio_stop();
+	gpio_stop_now = 1;
 }
 
 void
 Morse::gpio_tx(const char *morse)
 {
+	struct morse_cb_args *mcb = NULL;
 	int i;
 
 	if (gpio_tx_sending)
 		return;
 	else {
+		mcb = (struct morse_cb_args *)
+		    malloc(sizeof(struct morse_cb_args *));
+
 		gpio_put(gpio_tx_pin, 0);
 		gpio_tx_sending = 1;
+		gpio_stop_now = 0;
 
-		gpio_tx_len = strlen(morse);
-		gpio_tx_str = strndup(morse, gpio_tx_len);
+		mcb->len = strlen(morse);
+		mcb->morse = strndup(morse, mcb->len);
 
-		add_alarm_in_ms(gpio_pause, gpio_tx_handled_cb, NULL, false);
+		if (gpio_stop_now)
+			gpio_stop(mcb);
+		else
+			add_alarm_in_ms(gpio_pause, gpio_tx_handled_cb, mcb,
+			    false);
 	}
 }
 
 static void
-gpio_stop(void)
+gpio_stop(struct morse_cb_args *mcb)
 {
 	gpio_digraph = 0;
 	gpio_tx_sending = 0;
 	gpio_this_index = 0;
 	gpio_next_index = 0;
-
+	free(mcb);
 }
 
 static int64_t
 gpio_tx_handled_cb(alarm_id_t id, void *data)
 {
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
+
 	gpio_this_index = 0;
 	gpio_next_index = 1;
 
-	gpio_handle_chars();
+	if (gpio_stop_now)
+		gpio_stop(mcb);
+	else
+		gpio_handle_chars(mcb);
 
 	return 0;
 }
 
-struct pause_cb {
-	uint8_t c;
-};
-struct pause_cb pcb;
-
 static int64_t
 gpio_unit_handled_cb(alarm_id_t id, void *data)
 {
-	struct pause_cb *pcb = (struct pause_cb *) data;
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
 
 	gpio_put(gpio_tx_pin, 0);
 	gpio_unit_handled = 1;
 	gpio_bit++;
 
 	// handle IC_SP, or handle C_SP
-	if (pcb->c >> (gpio_bit + 1) || gpio_digraph)
+	if (mcb->c >> (gpio_bit + 1) || gpio_digraph)
 		gpio_handle_unit_millis = IC_SP * gpio_unit_t;
 	else
 		gpio_handle_unit_millis = C_SP * gpio_unit_t;
 
-	add_alarm_in_ms(gpio_handle_unit_millis, gpio_pause_handled_cb, pcb,
-	    false);
+	if (gpio_stop_now)
+		gpio_stop(mcb);
+	else
+		add_alarm_in_ms(gpio_handle_unit_millis, gpio_pause_handled_cb,
+		    mcb,false);
 
 	return 0;
 }
@@ -177,80 +191,93 @@ gpio_unit_handled_cb(alarm_id_t id, void *data)
 static int64_t
 gpio_pause_handled_cb(alarm_id_t id, void *data)
 {
-	struct pause_cb *pcb = (struct pause_cb *) data;
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
 
 	gpio_unit_handled = 0;
 	gpio_handle_unit = 0;
 
 	// hit the end of that byte
-	if (!(pcb->c >> (gpio_bit + 1))) {
+	if (!(mcb->c >> (gpio_bit + 1))) {
 		gpio_bit = 0;
 		gpio_next_index = 1;
-		gpio_tx_str++;
+		mcb->morse++;
 		gpio_this_index++;
-		gpio_handle_chars();
-	} else
-		gpio_handle_units(pcb->c);
-
-	if (gpio_this_index == gpio_tx_len)
-		gpio_stop();
+		if (gpio_stop_now)
+			gpio_stop(mcb);
+		else
+			gpio_handle_chars(mcb);
+	} else {
+		if (gpio_stop_now)
+			gpio_stop(mcb);
+		else
+			gpio_handle_chars(mcb);
+	}
 
 	return 0;
 }
 
 static void
-gpio_handle_chars(void)
+gpio_handle_chars(struct morse_cb_args *mcb)
 {
-	if (gpio_this_index == gpio_tx_len)
-		gpio_stop();
+	if (gpio_this_index == mcb->len)
+		gpio_stop(mcb);
 	if (gpio_next_index) {
 		gpio_next_index = 0;
 		gpio_handle_unit = 0;
 		gpio_unit_handled = 0;
-		if (*gpio_tx_str == 126) {
-			gpio_tx_str++;
+		if (*mcb->morse == 126) {
+			mcb->morse++;
 			gpio_this_index++;
 			gpio_next_index = 1;
-		} else if (*gpio_tx_str == 96) {
+		} else if (*mcb->morse == 96) {
 			gpio_digraph = !gpio_digraph;
-			gpio_tx_str++;
+			mcb->morse++;
 			gpio_this_index++;
 			gpio_next_index = 1;
-			gpio_handle_chars();
+			if (gpio_stop_now)
+				gpio_stop(mcb);
+			else
+				gpio_handle_chars(mcb);
 		} else {
-			gpio_tx_enc = ctob(*gpio_tx_str);
-			gpio_handle_units(gpio_tx_enc);
+			mcb->c = ctob(*mcb->morse);
+			if (gpio_stop_now)
+				gpio_stop(mcb);
+			else
+				gpio_handle_units(mcb);
 			gpio_bit = 0;
 		}
-	} else if (gpio_tx_sending)
-		gpio_handle_units(gpio_tx_enc);
+	} else if (gpio_tx_sending) {
+		if (gpio_stop_now)
+			gpio_stop(mcb);
+		else
+			gpio_handle_units(mcb);
+	}
 
 }
 
 static void
-gpio_handle_units(uint8_t c)
+gpio_handle_units(struct morse_cb_args *mcb)
 {
-	memset(&pcb, 0, sizeof(pcb));
-	pcb.c = c;
-
 	// set led on and space off
 	if (!gpio_next_index && !gpio_handle_unit && !gpio_unit_handled &&
 	    gpio_tx_sending) {
-		if (c == 1)
+		if (mcb->c == 1)
 			gpio_handle_unit_millis = W_SP * gpio_unit_t;
 		else {
 			gpio_put(gpio_tx_pin, 1);
-			if (bit_read(c, gpio_bit))
+			if (bit_read(mcb->c, gpio_bit))
 				gpio_handle_unit_millis = DAH * gpio_unit_t;
 			else
 				gpio_handle_unit_millis = DIT * gpio_unit_t;
 		}
 		gpio_handle_unit = 1;
 
-		add_alarm_in_ms(gpio_handle_unit_millis, gpio_unit_handled_cb,
-		    &pcb, false);
+		if (gpio_stop_now)
+			gpio_stop(mcb);
+		else
+			add_alarm_in_ms(gpio_handle_unit_millis,
+			    gpio_unit_handled_cb, mcb, false);
 	}
-
 }
 
 static uint8_t
