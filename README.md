@@ -12,14 +12,16 @@ Clone the library to your project:
 
 		git clone https://github.com/basepr1me/Raspberry-Pi-Morse-Code.git
 
-Two class instantiation methods are in place:
+Three class instantiation methods are in place:
 
 		Morse(TYPE, PIN, TX_PAUSE);
 		Morse(TYPE, PIN, TX_PAUSE, WPM);
+		Morse(TYPE, PIN, TX_PAUSE, WPM, FREQ);
 
 Types available are:
 		
 		M_GPIO	// GPIO Pin Type
+		M_DAC	// PWM Output
 
 Pro-sign Morse Code can be generated using backticks:
 
