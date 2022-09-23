@@ -30,7 +30,7 @@ Pro-sign Morse Code can be generated using backticks:
 Example
 -------
 
-See the [LED Example](morse.cpp) file for more information.
+See the [Morse Example](morse.cpp) file for more information.
 
 Notes
 -----
