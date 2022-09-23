@@ -25,12 +25,20 @@ Morse
 		    unsigned long the_pause);
 		Morse(uint8_t type, uint8_t the_pin,
 		    unsigned long the_pause, uint8_t the_wpm);
+		Morse(uint8_t type, uint8_t the_pin,
+		    unsigned long the_pause, uint8_t the_wpm, uint16_t st_freq);
 
 		uint8_t gpio_get_transmitting(void);
 		void gpio_set_transmitting(void);
 
 		void gpio_tx(const char *);
 		void gpio_tx_stop(void);
+
+		uint8_t dac_get_transmitting(void);
+		void dac_set_transmitting(void);
+
+		void dac_tx(const char *);
+		void dac_tx_stop(void);
 };
 
 enum

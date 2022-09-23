@@ -22,6 +22,8 @@
 #include "pico/stdlib.h"
 #include "pico/malloc.h"
 
+#include "hardware/pwm.h"
+
 #include "libmorse.h"
 
 #define DIT		 1.0
@@ -31,6 +33,7 @@
 #define W_SP		 7.0
 
 #define D_WPM		 10
+#define ST		 600
 
 #define UNIT_T(x) (60.0 / (50.0 * (float)x)) * 1000.0
 #define bit_read(value, bit) (((value) >> (bit)) & 0x01)
@@ -44,10 +47,17 @@ struct morse_cb_args {
 static volatile uint8_t	 gpio_wpm, gpio_tx_pin, gpio_stop_now;
 static volatile uint64_t gpio_pause;
 
+static volatile uint8_t	 dac_wpm, dac_tx_pin, dac_stop_now;
+static volatile uint64_t dac_pause;
+
 static volatile float	 gpio_unit_t;
+static volatile float	 dac_unit_t;
 
 static volatile uint8_t	 gpio_tx_sending = 0;
 static volatile	uint8_t	 gpio_unit_handled;
+
+static volatile uint8_t	 dac_tx_sending = 0;
+static volatile	uint8_t	 dac_unit_handled;
 
 static uint8_t		 ctob(uint8_t);
 static uint8_t		 gpio_this_index = 0, gpio_next_index = 0;
@@ -55,14 +65,31 @@ static uint8_t		 gpio_handle_unit, gpio_bit;
 static uint8_t		 gpio_digraph = 0, gpio_inited = 0;
 
 static unsigned long	 gpio_handle_unit_millis;
+static unsigned long	 dac_handle_unit_millis;
+
+static uint8_t		 dac_this_index = 0, dac_next_index = 0;
+static uint8_t		 dac_handle_unit, dac_bit;
+static uint8_t		 dac_digraph = 0, dac_inited = 0;
 
 static void		 gpio_stop(struct morse_cb_args *);
 static void		 gpio_handle_chars(struct morse_cb_args *);
 static void		 gpio_handle_units(struct morse_cb_args *);
 
-static int64_t gpio_unit_handled_cb(alarm_id_t, void *);
-static int64_t gpio_pause_handled_cb(alarm_id_t, void *);
-static int64_t gpio_tx_handled_cb(alarm_id_t, void *);
+static void		 dac_stop(struct morse_cb_args *);
+static void		 dac_handle_chars(struct morse_cb_args *);
+static void		 dac_handle_units(struct morse_cb_args *);
+
+static void		 pwm_set_freq_duty(uint8_t, uint8_t, uint16_t, uint8_t);
+
+static int64_t		 gpio_unit_handled_cb(alarm_id_t, void *);
+static int64_t		 gpio_pause_handled_cb(alarm_id_t, void *);
+static int64_t		 gpio_tx_handled_cb(alarm_id_t, void *);
+
+static int64_t		 dac_unit_handled_cb(alarm_id_t, void *);
+static int64_t		 dac_pause_handled_cb(alarm_id_t, void *);
+static int64_t		 dac_tx_handled_cb(alarm_id_t, void *);
+
+uint8_t slice, channel;
 
 Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause)
 {
@@ -71,6 +98,12 @@ Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause)
 
 Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause,
     uint8_t the_wpm)
+{
+	Morse(type, the_pin, the_pause, the_wpm, ST);
+}
+
+Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause,
+    uint8_t the_wpm, uint16_t st_freq)
 {
 	switch(type) {
 	case M_GPIO:
@@ -85,13 +118,27 @@ Morse::Morse(uint8_t type, uint8_t the_pin, unsigned long the_pause,
 		}
 		break;
 	case M_DAC:
-		// we don't have a dac, but we will setup pwm
+		if (!dac_inited) {
+			dac_wpm = the_wpm;
+			dac_pause = the_pause * 1000;
+			dac_tx_pin = the_pin;
+			dac_unit_t = UNIT_T(dac_wpm);
+			dac_inited = 1;
+
+			gpio_set_function(dac_tx_pin, GPIO_FUNC_PWM);
+			slice = pwm_gpio_to_slice_num(dac_tx_pin);
+			channel = pwm_gpio_to_channel(dac_tx_pin);
+			pwm_set_freq_duty(slice, channel, st_freq, 50);
+			pwm_set_enabled(slice, false);
+		}
 		break;
 	default:
 		exit(1);
 		break;
 	}
 }
+
+/* gpio */
 
 void
 Morse::gpio_set_transmitting(void)
@@ -278,6 +325,219 @@ gpio_handle_units(struct morse_cb_args *mcb)
 			add_alarm_in_ms(gpio_handle_unit_millis,
 			    gpio_unit_handled_cb, mcb, false);
 	}
+}
+
+/* dac */
+
+void
+Morse::dac_set_transmitting(void)
+{
+	dac_tx_sending = 1;
+}
+
+uint8_t
+Morse::dac_get_transmitting(void)
+{
+	return dac_tx_sending;
+}
+
+void
+Morse::dac_tx_stop(void)
+{
+	dac_stop_now = 1;
+}
+
+void
+Morse::dac_tx(const char *morse)
+{
+	struct morse_cb_args *mcb = NULL;
+	int i;
+
+	if (dac_tx_sending)
+		return;
+	else {
+		mcb = (struct morse_cb_args *)
+		    malloc(sizeof(struct morse_cb_args *));
+
+		pwm_set_enabled(slice, false);
+		dac_tx_sending = 1;
+		dac_stop_now = 0;
+
+		mcb->len = strlen(morse);
+		mcb->morse = strndup(morse, mcb->len);
+
+		if (dac_stop_now)
+			dac_stop(mcb);
+		else
+			add_alarm_in_ms(dac_pause, dac_tx_handled_cb, mcb,
+			    false);
+	}
+}
+
+static void
+dac_stop(struct morse_cb_args *mcb)
+{
+	dac_digraph = 0;
+	dac_tx_sending = 0;
+	dac_this_index = 0;
+	dac_next_index = 0;
+	free(mcb);
+}
+
+static int64_t
+dac_tx_handled_cb(alarm_id_t id, void *data)
+{
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
+
+	dac_this_index = 0;
+	dac_next_index = 1;
+
+	if (dac_stop_now)
+		dac_stop(mcb);
+	else
+		dac_handle_chars(mcb);
+
+	return 0;
+}
+
+static int64_t
+dac_unit_handled_cb(alarm_id_t id, void *data)
+{
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
+
+	pwm_set_enabled(slice, false);
+	dac_unit_handled = 1;
+	dac_bit++;
+
+	// handle IC_SP, or handle C_SP
+	if (mcb->c >> (dac_bit + 1) || dac_digraph)
+		dac_handle_unit_millis = IC_SP * dac_unit_t;
+	else
+		dac_handle_unit_millis = C_SP * dac_unit_t;
+
+	if (dac_stop_now)
+		dac_stop(mcb);
+	else
+		add_alarm_in_ms(dac_handle_unit_millis, dac_pause_handled_cb,
+		    mcb,false);
+
+	return 0;
+}
+
+static int64_t
+dac_pause_handled_cb(alarm_id_t id, void *data)
+{
+	struct morse_cb_args *mcb = (struct morse_cb_args *) data;
+
+	dac_unit_handled = 0;
+	dac_handle_unit = 0;
+
+	// hit the end of that byte
+	if (!(mcb->c >> (dac_bit + 1))) {
+		dac_bit = 0;
+		dac_next_index = 1;
+		mcb->morse++;
+		dac_this_index++;
+		if (dac_stop_now)
+			dac_stop(mcb);
+		else
+			dac_handle_chars(mcb);
+	} else {
+		if (dac_stop_now)
+			dac_stop(mcb);
+		else
+			dac_handle_chars(mcb);
+	}
+
+	return 0;
+}
+
+static void
+dac_handle_chars(struct morse_cb_args *mcb)
+{
+	if (dac_this_index == mcb->len)
+		dac_stop(mcb);
+	if (dac_next_index) {
+		dac_next_index = 0;
+		dac_handle_unit = 0;
+		dac_unit_handled = 0;
+		if (*mcb->morse == 126) {
+			mcb->morse++;
+			dac_this_index++;
+			dac_next_index = 1;
+		} else if (*mcb->morse == 96) {
+			dac_digraph = !dac_digraph;
+			mcb->morse++;
+			dac_this_index++;
+			dac_next_index = 1;
+			if (dac_stop_now)
+				dac_stop(mcb);
+			else
+				dac_handle_chars(mcb);
+		} else {
+			mcb->c = ctob(*mcb->morse);
+			if (dac_stop_now)
+				dac_stop(mcb);
+			else
+				dac_handle_units(mcb);
+			dac_bit = 0;
+		}
+	} else if (dac_tx_sending) {
+		if (dac_stop_now)
+			dac_stop(mcb);
+		else
+			dac_handle_units(mcb);
+	}
+
+}
+
+static void
+dac_handle_units(struct morse_cb_args *mcb)
+{
+	// set led on and space off
+	if (!dac_next_index && !dac_handle_unit && !dac_unit_handled &&
+	    dac_tx_sending) {
+		if (mcb->c == 1)
+			dac_handle_unit_millis = W_SP * dac_unit_t;
+		else {
+			pwm_set_enabled(slice, true);
+			if (bit_read(mcb->c, dac_bit))
+				dac_handle_unit_millis = DAH * dac_unit_t;
+			else
+				dac_handle_unit_millis = DIT * dac_unit_t;
+		}
+		dac_handle_unit = 1;
+
+		if (dac_stop_now)
+			dac_stop(mcb);
+		else
+			add_alarm_in_ms(dac_handle_unit_millis,
+			    dac_unit_handled_cb, mcb, false);
+	}
+}
+
+/* other */
+
+/* edited from
+ * https://www.i-programmer.info/programming/hardware/14849-the-pico-in-c-basic-pwm.html?start=2
+ */
+
+static
+void pwm_set_freq_duty(uint8_t slice, uint8_t channel, uint16_t freq,
+    uint8_t duty)
+{
+	uint32_t clock, divider16, wrap;
+
+	clock = 125000000;
+	divider16 = clock / freq / 4096 + (clock % (freq * 4096) != 0);
+
+	if (divider16 / 16 == 0)
+		divider16 = 16;
+
+	wrap = clock * 16 / divider16 / freq - 1;
+	pwm_set_clkdiv_int_frac(slice, divider16/16, divider16 & 0xF);
+	pwm_set_wrap(slice, wrap);
+	pwm_set_chan_level(slice, channel, wrap * duty / 100);
 }
 
 static uint8_t

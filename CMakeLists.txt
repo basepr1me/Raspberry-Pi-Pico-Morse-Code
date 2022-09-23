@@ -8,14 +8,22 @@ project(morse)
 pico_sdk_init()
 
 add_executable(morse
-        morse.cpp
+	morse.cpp
 	libmorse.cpp
-        )
+	)
 
 # pull in common dependencies
 target_link_libraries(morse
 	pico_stdlib
 	pico_malloc
+	hardware_pwm
+	)
+
+add_compile_options(
+	-Wall
+	-Wno-format
+	-Wno-unused-function
+	-Wno-maybe-uninitialized
 	)
 
 pico_enable_stdio_usb(morse 1)

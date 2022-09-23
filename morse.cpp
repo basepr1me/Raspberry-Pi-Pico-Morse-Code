@@ -23,11 +23,17 @@
 #define CALLS 3
 
 #define WPM 15
+#define DAC_WPM 10
+
 #define TX_PAUSE 3 // pause before transmitting and between TXs
+#define DAC_PAUSE 5
+#define DAC_FREQ 550
+#define DAC_PIN 8
 
 const uint pin = PICO_DEFAULT_LED_PIN;
 
 Morse morse_led(M_GPIO, pin, TX_PAUSE, WPM);
+Morse morse_dac(M_DAC, DAC_PIN, DAC_PAUSE, DAC_WPM, DAC_FREQ);
 
 int main(void);
 
@@ -44,14 +50,29 @@ main()
 	    }
 	};
 
+	const char *dac_morse[][CALLS] = {
+	    {
+		    "de bz4kz `ar`",
+		    "cq cq pota cq de bz4kz k",
+		    "qst qst qst gm de bz4kz 73 bk",
+	    }
+	};
+
 	stdio_init_all();
 
 	while (1) {
 		if (!morse_led.gpio_get_transmitting()) {
 			n = 0 + (rand() % CALLS);
-			printf("Sending transmission %d: %s\n", n,
+			printf("Sending LED transmission %d: %s\n", n,
 			    led_morse[0][n]);
 			morse_led.gpio_tx(led_morse[0][n]);
+		}
+
+		if (!morse_dac.dac_get_transmitting()) {
+			n = 0 + (rand() % CALLS);
+			printf("Sending DAC transmission %d: %s\n", n,
+			    dac_morse[0][n]);
+			morse_dac.dac_tx(dac_morse[0][n]);
 		}
 	}
 
