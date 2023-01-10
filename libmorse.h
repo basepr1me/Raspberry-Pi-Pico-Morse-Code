@@ -34,11 +34,15 @@ Morse
 		void gpio_tx(const char *);
 		void gpio_tx_stop(void);
 
+		void gpio_set_wpm(uint8_t the_wpm);
+
 		uint8_t dac_get_transmitting(void);
 		void dac_set_transmitting(void);
 
 		void dac_tx(const char *);
 		void dac_tx_stop(void);
+
+		void dac_set_wpm(uint8_t the_wpm);
 };
 
 enum

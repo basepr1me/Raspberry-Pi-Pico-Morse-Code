@@ -185,6 +185,14 @@ Morse::gpio_tx(const char *morse)
 	}
 }
 
+void
+Morse::gpio_set_wpm(uint8_t the_wpm)
+{
+	gpio_wpm = the_wpm;
+	gpio_unit_t = UNIT_T(gpio_wpm);
+	gpio_inited = 1;
+}
+
 static void
 gpio_stop(struct morse_cb_args *mcb)
 {
@@ -372,6 +380,14 @@ Morse::dac_tx(const char *morse)
 			add_alarm_in_ms(dac_pause, dac_tx_handled_cb, mcb,
 			    false);
 	}
+}
+
+void
+Morse::dac_set_wpm(uint8_t the_wpm)
+{
+	dac_wpm = the_wpm;
+	dac_unit_t = UNIT_T(gpio_wpm);
+	dac_inited = 1;
 }
 
 static void

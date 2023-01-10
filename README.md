@@ -27,6 +27,11 @@ Pro-sign Morse Code can be generated using backticks:
 
 		cont char *led_morse = "Hello giant world `ar`";
 
+To set the WPM, two functions are available:
+
+		gpio_set_wpm(WPM);
+		dac_set_wpm(WPM);
+
 Example
 -------
 
