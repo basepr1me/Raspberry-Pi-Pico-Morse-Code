@@ -41,7 +41,7 @@
 struct morse_cb_args {
 	uint8_t c;
 	char *morse;
-	uint8_t len;
+	uint16_t len;
 };
 
 static volatile uint8_t	 gpio_wpm, gpio_tx_pin, gpio_stop_now;
