@@ -53,10 +53,10 @@ static volatile uint64_t dac_pause;
 static volatile float	 gpio_unit_t;
 static volatile float	 dac_unit_t;
 
-static volatile uint8_t	 gpio_tx_sending = 0;
+static volatile uint8_t	 gpio_tx_sending = 0, gpio_tx_set = 0;
 static volatile	uint8_t	 gpio_unit_handled;
 
-static volatile uint8_t	 dac_tx_sending = 0;
+static volatile uint8_t	 dac_tx_sending = 0, dac_tx_set = 0;
 static volatile	uint8_t	 dac_unit_handled;
 
 static uint8_t		 ctob(uint8_t);
@@ -147,6 +147,12 @@ Morse::gpio_set_transmitting(void)
 }
 
 uint8_t
+Morse::gpio_get_transmit_set(void)
+{
+	return gpio_tx_set;
+}
+
+uint8_t
 Morse::gpio_get_transmitting(void)
 {
 	return gpio_tx_sending;
@@ -171,7 +177,7 @@ Morse::gpio_tx(const char *morse)
 		    malloc(sizeof(struct morse_cb_args *));
 
 		gpio_put(gpio_tx_pin, 0);
-		gpio_tx_sending = 1;
+		gpio_tx_set = 1;
 		gpio_stop_now = 0;
 
 		mcb->len = strlen(morse);
@@ -198,6 +204,7 @@ gpio_stop(struct morse_cb_args *mcb)
 {
 	gpio_digraph = 0;
 	gpio_tx_sending = 0;
+	gpio_tx_set = 0;
 	gpio_this_index = 0;
 	gpio_next_index = 0;
 	free(mcb);
@@ -214,6 +221,7 @@ gpio_tx_handled_cb(alarm_id_t id, void *data)
 	if (gpio_stop_now)
 		gpio_stop(mcb);
 	else
+		gpio_tx_sending = 1;
 		gpio_handle_chars(mcb);
 
 	return 0;
@@ -344,6 +352,12 @@ Morse::dac_set_transmitting(void)
 }
 
 uint8_t
+Morse::dac_get_transmit_set(void)
+{
+	return dac_tx_set;
+}
+
+uint8_t
 Morse::dac_get_transmitting(void)
 {
 	return dac_tx_sending;
@@ -368,7 +382,7 @@ Morse::dac_tx(const char *morse)
 		    malloc(sizeof(struct morse_cb_args *));
 
 		pwm_set_enabled(slice, false);
-		dac_tx_sending = 1;
+		dac_tx_set = 1;
 		dac_stop_now = 0;
 
 		mcb->len = strlen(morse);
@@ -395,6 +409,7 @@ dac_stop(struct morse_cb_args *mcb)
 {
 	dac_digraph = 0;
 	dac_tx_sending = 0;
+	dac_tx_set = 0;
 	dac_this_index = 0;
 	dac_next_index = 0;
 	free(mcb);
@@ -411,6 +426,7 @@ dac_tx_handled_cb(alarm_id_t id, void *data)
 	if (dac_stop_now)
 		dac_stop(mcb);
 	else
+		dac_tx_sending = 1;
 		dac_handle_chars(mcb);
 
 	return 0;

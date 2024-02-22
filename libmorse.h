@@ -28,6 +28,7 @@ Morse
 		Morse(uint8_t type, uint8_t the_pin,
 		    unsigned long the_pause, uint8_t the_wpm, uint16_t st_freq);
 
+		uint8_t gpio_get_transmit_set(void);
 		uint8_t gpio_get_transmitting(void);
 		void gpio_set_transmitting(void);
 
@@ -36,6 +37,7 @@ Morse
 
 		void gpio_set_wpm(uint8_t the_wpm);
 
+		uint8_t dac_get_transmit_set(void);
 		uint8_t dac_get_transmitting(void);
 		void dac_set_transmitting(void);
 
